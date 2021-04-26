@@ -322,7 +322,6 @@ configure_uart(uint32_t baudrate) {
         /* LL_DMA_EnableChannel(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
 #endif /* defined(LWESP_USART_DMA_RX_STREAM) */
         USART_Cmd(LWESP_USART, ENABLE);
-        print_esp("dupalala");
         return;
     } else {
         vTaskDelay(100);
