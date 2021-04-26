@@ -1,4 +1,4 @@
-# Lightweight ESP-AT parser
+# Lightweight ESP-AT parser my branch with just added support for stm32f4xx with std_peripheral_library
 
 LwESP is lightweight ESP AT commands parser library to communicate with ESP8266 or ESP32 Wi-Fi module using AT commands. Module is written in C99 and is independent from used platform. Its main targets are embedded system devices like ARM Cortex-M, AVR, PIC and others, but can easily work under `Windows`, `Linux` or `MAC` environments.
 

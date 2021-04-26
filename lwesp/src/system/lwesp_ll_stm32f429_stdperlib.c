@@ -32,6 +32,7 @@
  * Version:         v1.1.0-dev
  */
 
+#include "lwesp_sys_port.h"
 #if !__DOXYGEN__
 
 /* #include "stm32f4xx_ll_bus.h" */
@@ -53,15 +54,16 @@
 #define LWESP_USART_IRQHANDLER USART6_IRQHandler
 #define LWESP_USART_RDR_NAME DR
 
-/* /1* DMA settings *1/ */
+/* DMA settings */
 #define LWESP_USART_DMA DMA2
 #define LWESP_USART_DMA_CLK RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA2, ENABLE);
-/* #define LWESP_USART_DMA_RX_STREAM DMA_STREAM_1 */
-/* #define LWESP_USART_DMA_RX_CH LL_DMA_CHANNEL_4 */
-/* #define LWESP_USART_DMA_RX_IRQ DMA1_Stream5_IRQn */
-/* #define LWESP_USART_DMA_RX_IRQHANDLER DMA1_Stream5_IRQHandler */
+#define LWESP_USART_DMA_RX_STREAM DMA2_Stream1
+/* #define LWESP_USART_DMA_RX_STREAM DMA2_Stream2 */ //just in case
+#define LWESP_USART_DMA_RX_CH DMA_Channel_5
+#define LWESP_USART_DMA_RX_IRQ DMA2_Stream1_IRQn
+#define LWESP_USART_DMA_RX_IRQHANDLER DMA2_Stream1_IRQHandler
 
-/* /1* DMA flags management *1/ */
+/* DMA flags management */
 /* #define LWESP_USART_DMA_RX_IS_TC LL_DMA_IsActiveFlag_TC5(LWESP_USART_DMA) */
 /* #define LWESP_USART_DMA_RX_IS_HT LL_DMA_IsActiveFlag_HT5(LWESP_USART_DMA) */
 /* #define LWESP_USART_DMA_RX_CLEAR_TC LL_DMA_ClearFlag_TC5(LWESP_USART_DMA) */
@@ -118,52 +120,52 @@
 /* #endif /1* !defined(LWESP_USART_RDR_NAME) *1/ */
 
 /* USART memory */
-/* static uint8_t usart_mem[LWESP_USART_DMA_RX_BUFF_SIZE]; */
+static uint8_t usart_mem[LWESP_USART_DMA_RX_BUFF_SIZE];
 static uint8_t is_running, initialized;
 static size_t old_pos;
 
 /* USART thread */
 static void usart_ll_thread(void *arg);
-/* static osThreadId_t usart_ll_thread_id; */
+static lwesp_sys_thread_t usart_ll_thread_id;
 
 /* Message queue */
-/* static osMessageQueueId_t usart_ll_mbox_id; */
+static lwesp_sys_mbox_t usart_ll_mbox_id;
 
 /**
  * \brief           USART data processing
  */
 static void
 usart_ll_thread(void *arg) {
-    /* size_t pos; */
+    size_t pos;
 
-    /* LWESP_UNUSED(arg); */
+    LWESP_UNUSED(arg);
 
-    /* while (1) { */
-    /*     void* d; */
-    /*     /1* Wait for the event message from DMA or USART *1/ */
-    /*     osMessageQueueGet(usart_ll_mbox_id, &d, NULL, osWaitForever); */
+    while (1) {
+        void *d;
+        /* Wait for the event message from DMA or USART, forever */
+        lwesp_sys_mbox_get(usart_ll_mbox_id, &d, 0);
 
-    /*     /1* Read data *1/ */
-    /* #if defined(LWESP_USART_DMA_RX_STREAM) */
-    /*     pos = sizeof(usart_mem) - LL_DMA_GetDataLength(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
-    /* #else */
-    /*     pos = sizeof(usart_mem) - LL_DMA_GetDataLength(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
-    /* #endif /1* defined(LWESP_USART_DMA_RX_STREAM) *1/ */
-    /*     if (pos != old_pos && is_running) { */
-    /*         if (pos > old_pos) { */
-    /*             lwesp_input_process(&usart_mem[old_pos], pos - old_pos); */
-    /*         } else { */
-    /*             lwesp_input_process(&usart_mem[old_pos], sizeof(usart_mem) - old_pos); */
-    /*             if (pos > 0) { */
-    /*                 lwesp_input_process(&usart_mem[0], pos); */
-    /*             } */
-    /*         } */
-    /*         old_pos = pos; */
-    /*         if (old_pos == sizeof(usart_mem)) { */
-    /*             old_pos = 0; */
-    /*         } */
-    /*     } */
-    /* } */
+        /* Read data */
+#if defined(LWESP_USART_DMA_RX_STREAM)
+        pos = sizeof(usart_mem) - DMA_GetCurrDataCounter(LWESP_USART_DMA_RX_STREAM);
+#else
+        /* pos = sizeof(usart_mem) - DMA_GetDataLength(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
+#endif /* defined(LWESP_USART_DMA_RX_STREAM) */
+        if (pos != old_pos && is_running) {
+            if (pos > old_pos) {
+                lwesp_input_process(&usart_mem[old_pos], pos - old_pos);
+            } else {
+                lwesp_input_process(&usart_mem[old_pos], sizeof(usart_mem) - old_pos);
+                if (pos > 0) {
+                    lwesp_input_process(&usart_mem[0], pos);
+                }
+            }
+            old_pos = pos;
+            if (old_pos == sizeof(usart_mem)) {
+                old_pos = 0;
+            }
+        }
+    }
 }
 
 /**
@@ -261,84 +263,83 @@ configure_uart(uint32_t baudrate) {
         USART_ITConfig(LWESP_USART, USART_IT_IDLE, ENABLE);
         USART_ITConfig(LWESP_USART, USART_IT_PE, ENABLE);
         USART_ITConfig(LWESP_USART, USART_IT_ERR, ENABLE);
-        /*     LL_USART_EnableDMAReq_RX(LWESP_USART); */
+        USART_DMACmd(LWESP_USART, USART_DMAReq_Rx, ENABLE);
 
-        /*     /1* Enable USART interrupts *1/ */
-        /*     NVIC_SetPriority(LWESP_USART_IRQ, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0x07, 0x00)); */
-        /*     NVIC_EnableIRQ(LWESP_USART_IRQ); */
+        /* Enable USART interrupts */
+        NVIC_SetPriority(LWESP_USART_IRQ, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0x07, 0x00));
+        NVIC_EnableIRQ(LWESP_USART_IRQ);
 
-        /*     /1* Configure DMA *1/ */
-        /*     is_running = 0; */
-        /* #if defined(LWESP_USART_DMA_RX_STREAM) */
-        /*     LL_DMA_DeInit(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
-        /*     dma_init.Channel = LWESP_USART_DMA_RX_CH; */
-        /* #else */
-        /*     LL_DMA_DeInit(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
-        /*     dma_init.PeriphRequest = LWESP_USART_DMA_RX_REQ_NUM; */
-        /* #endif /1* defined(LWESP_USART_DMA_RX_STREAM) *1/ */
-        /*     dma_init.PeriphOrM2MSrcAddress = (uint32_t)&LWESP_USART->LWESP_USART_RDR_NAME; */
-        /*     dma_init.MemoryOrM2MDstAddress = (uint32_t)usart_mem; */
-        /*     dma_init.Direction = LL_DMA_DIRECTION_PERIPH_TO_MEMORY; */
-        /*     dma_init.Mode = LL_DMA_MODE_CIRCULAR; */
-        /*     dma_init.PeriphOrM2MSrcIncMode = LL_DMA_PERIPH_NOINCREMENT; */
-        /*     dma_init.MemoryOrM2MDstIncMode = LL_DMA_MEMORY_INCREMENT; */
-        /*     dma_init.PeriphOrM2MSrcDataSize = LL_DMA_PDATAALIGN_BYTE; */
-        /*     dma_init.MemoryOrM2MDstDataSize = LL_DMA_MDATAALIGN_BYTE; */
-        /*     dma_init.NbData = sizeof(usart_mem); */
-        /*     dma_init.Priority = LL_DMA_PRIORITY_MEDIUM; */
-        /* #if defined(LWESP_USART_DMA_RX_STREAM) */
-        /*     LL_DMA_Init(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM, &dma_init); */
-        /* #else */
-        /*     LL_DMA_Init(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH, &dma_init); */
-        /* #endif /1* defined(LWESP_USART_DMA_RX_STREAM) *1/ */
+        /* Configure DMA */
+        is_running = 0;
+#if defined(LWESP_USART_DMA_RX_STREAM)
+        DMA_DeInit(LWESP_USART_DMA_RX_STREAM);
+        dma_init.DMA_Channel = LWESP_USART_DMA_RX_CH;
+#else
+        /* DMA_DeInit(LWESP_USART_DMA_RX_STREAM); */
+        /* dma_init.PeriphRequest = LWESP_USART_DMA_RX_REQ_NUM; */
+#endif /* defined(LWESP_USART_DMA_RX_STREAM) */
+        dma_init.DMA_PeripheralBaseAddr = (uint32_t)&LWESP_USART->LWESP_USART_RDR_NAME;
+        dma_init.DMA_Memory0BaseAddr = (uint32_t)usart_mem;
+        dma_init.DMA_DIR = DMA_DIR_PeripheralToMemory;
+        dma_init.DMA_Mode = DMA_Mode_Circular;
+        dma_init.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+        dma_init.DMA_MemoryInc = DMA_MemoryInc_Enable;
+        dma_init.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;
+        dma_init.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
+        dma_init.DMA_BufferSize = sizeof(usart_mem);
+        dma_init.DMA_Priority = DMA_Priority_Medium;
+#if defined(LWESP_USART_DMA_RX_STREAM)
+        DMA_Init(LWESP_USART_DMA_RX_STREAM, &dma_init);
+#else
+        DMA_Init(LWESP_USART_DMA_RX_CH, &dma_init);
+#endif /* defined(LWESP_USART_DMA_RX_STREAM) */
 
-        /*     /1* Enable DMA interrupts *1/ */
-        /* #if defined(LWESP_USART_DMA_RX_STREAM) */
-        /*     LL_DMA_EnableIT_HT(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
-        /*     LL_DMA_EnableIT_TC(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
-        /*     LL_DMA_EnableIT_TE(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
-        /*     LL_DMA_EnableIT_FE(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
-        /*     LL_DMA_EnableIT_DME(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
-        /* #else */
-        /*     LL_DMA_EnableIT_HT(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
-        /*     LL_DMA_EnableIT_TC(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
-        /*     LL_DMA_EnableIT_TE(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
-        /* #endif /1* defined(LWESP_USART_DMA_RX_STREAM) *1/ */
+        /* Enable DMA interrupts */
+#if defined(LWESP_USART_DMA_RX_STREAM)
+        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_HT, ENABLE);
+        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TC, ENABLE);
+        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TE, ENABLE);
+        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_FE, ENABLE);
+        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_DME, ENABLE);
+#else
+        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_HT, ENABLE);
+        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TC, ENABLE);
+        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TE, ENABLE);
+#endif /* defined(LWESP_USART_DMA_RX_STREAM) */
 
-        /*     /1* Enable DMA interrupts *1/ */
-        /*     NVIC_SetPriority(LWESP_USART_DMA_RX_IRQ, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0x07, 0x00)); */
-        /*     NVIC_EnableIRQ(LWESP_USART_DMA_RX_IRQ); */
+        /* Enable DMA interrupts */
+        NVIC_SetPriority(LWESP_USART_DMA_RX_IRQ, NVIC_EncodePriority(NVIC_GetPriorityGrouping(), 0x07, 0x00));
+        NVIC_EnableIRQ(LWESP_USART_DMA_RX_IRQ);
 
-        /*     old_pos = 0; */
-        /*     is_running = 1; */
+        old_pos = 0;
+        is_running = 1;
 
-        /*     /1* Start DMA and USART *1/ */
-        /* #if defined(LWESP_USART_DMA_RX_STREAM) */
-        /*     LL_DMA_EnableStream(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
-        /* #else */
-        /*     LL_DMA_EnableChannel(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
-        /* #endif /1* defined(LWESP_USART_DMA_RX_STREAM) *1/ */
+        /* Start DMA and USART */
+#if defined(LWESP_USART_DMA_RX_STREAM)
+        DMA_Cmd(LWESP_USART_DMA_RX_STREAM, ENABLE);
+        /* LL_DMA_EnableStream(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
+#else
+        /* LL_DMA_EnableChannel(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
+#endif /* defined(LWESP_USART_DMA_RX_STREAM) */
         USART_Cmd(LWESP_USART, ENABLE);
         print_esp("dupalala");
         return;
     } else {
-        /* vTaskDelay(10); */
-        /* USART_Disable(LWESP_USART); */
-        /* /1*     usart_init.BaudRate = baudrate; *1/ */
-        /* USART_Init(LWESP_USART, &usart_init); */
-        /* USART_Enable(LWESP_USART); */
+        vTaskDelay(100);
+        USART_Cmd(LWESP_USART, DISABLE);
+        usart_init.USART_BaudRate = baudrate;
+        USART_Init(LWESP_USART, &usart_init);
+        USART_Cmd(LWESP_USART, ENABLE);
     }
 
-    /* /1* Create mbox and start thread *1/ */
-    /* if (usart_ll_mbox_id == NULL) { */
-    /*     usart_ll_mbox_id = osMessageQueueNew(10, sizeof(void*), NULL); */
-    /* } */
-    /* if (usart_ll_thread_id == NULL) { */
-    /*     const osThreadAttr_t attr = { */
-    /*         .stack_size = 1024 */
-    /*     }; */
-    /*     usart_ll_thread_id = osThreadNew(usart_ll_thread, usart_ll_mbox_id, &attr); */
-    /* } */
+    /* Create mbox and start thread */
+    if (usart_ll_mbox_id == NULL) {
+        lwesp_sys_mbox_create(usart_ll_mbox_id, 10);
+    }
+    if (usart_ll_thread_id == NULL) {
+        //TODO: consider what priority best to use for it
+        lwesp_sys_thread_create(usart_ll_thread_id, "esp_AT_usart_thread", usart_ll_thread, usart_ll_mbox_id, 1024, 2);
+    }
 }
 
 #if defined(LWESP_RESET_PIN)
@@ -413,30 +414,32 @@ lwesp_ll_deinit(lwesp_ll_t *ll) {
 /**
  * \brief           UART global interrupt handler
  */
-//void LWESP_USART_IRQHANDLER(void) {
-/* LL_USART_ClearFlag_IDLE(LWESP_USART); */
-/* LL_USART_ClearFlag_PE(LWESP_USART); */
-/* LL_USART_ClearFlag_FE(LWESP_USART); */
-/* LL_USART_ClearFlag_ORE(LWESP_USART); */
-/* LL_USART_ClearFlag_NE(LWESP_USART); */
+#ifdef WIFI_ESP_ENABLED
+void LWESP_USART_IRQHANDLER(void) {
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_IDLE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_PE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_FE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_ORE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_NE);
 
-/* if (usart_ll_mbox_id != NULL) { */
-/*     void* d = (void*)1; */
-/*     osMessageQueuePut(usart_ll_mbox_id, &d, 0, 0); */
-/* } */
-//}
+    if (usart_ll_mbox_id != NULL) {
+        void *d = (void *)1;
+        lwesp_sys_mbox_put(usart_ll_mbox_id, &d);
+    }
+}
+#endif
 
 /**
  * \brief           UART DMA stream/channel handler
  */
 void LWESP_USART_DMA_RX_IRQHANDLER(void) {
-    /* LWESP_USART_DMA_RX_CLEAR_TC; */
-    /* LWESP_USART_DMA_RX_CLEAR_HT; */
+    DMA_ClearITPendingBit(LWESP_USART_DMA_RX_STREAM, DMA_IT_TC);
+    DMA_ClearITPendingBit(LWESP_USART_DMA_RX_STREAM, DMA_IT_HT);
 
-    /* if (usart_ll_mbox_id != NULL) { */
-    /*     void* d = (void*)1; */
-    /*     osMessageQueuePut(usart_ll_mbox_id, &d, 0, 0); */
-    /* } */
+    if (usart_ll_mbox_id != NULL) {
+        void *d = (void *)1;
+        lwesp_sys_mbox_put(usart_ll_mbox_id, &d);
+    }
 }
 
 #endif /* !__DOXYGEN__ */
