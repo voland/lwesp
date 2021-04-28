@@ -35,12 +35,6 @@
 #include "lwesp_sys_port.h"
 #if !__DOXYGEN__
 
-/* #include "stm32f4xx_ll_bus.h" */
-/* #include "stm32f4xx_ll_usart.h" */
-/* #include "stm32f4xx_ll_gpio.h" */
-/* #include "stm32f4xx_ll_dma.h" */
-/* #include "stm32f4xx_ll_rcc.h" */
-
 #include "lwesp/lwesp.h"
 #include "lwesp/lwesp_mem.h"
 /* #include "lwesp/lwesp_input.h" */
@@ -121,21 +115,29 @@
 
 /* USART memory */
 static uint8_t usart_mem[LWESP_USART_DMA_RX_BUFF_SIZE];
-static uint8_t is_running, initialized;
-static size_t old_pos;
+static uint8_t is_running = 0;
+static uint8_t initialized = 0;
+static size_t old_pos = 0;
 
 /* USART thread */
-static void usart_ll_thread(void *arg);
-static lwesp_sys_thread_t usart_ll_thread_id;
+void usart_ll_thread(void *arg);
+static lwesp_sys_thread_t usart_ll_thread_id = NULL;
 
 /* Message queue */
-static lwesp_sys_mbox_t usart_ll_mbox_id;
+static lwesp_sys_mbox_t usart_ll_mbox_id = NULL;
 
 /**
  * \brief           USART data processing
  */
-static void
-usart_ll_thread(void *arg) {
+
+static void _PutUsartMbox() {
+    if (usart_ll_mbox_id != NULL) {
+        void *d = (void *)1;
+        lwesp_sys_mbox_putnow(&usart_ll_mbox_id, d);
+    }
+}
+
+void usart_ll_thread(void *arg) {
     size_t pos;
 
     LWESP_UNUSED(arg);
@@ -143,13 +145,13 @@ usart_ll_thread(void *arg) {
     while (1) {
         void *d;
         /* Wait for the event message from DMA or USART, forever */
-        lwesp_sys_mbox_get(usart_ll_mbox_id, &d, 0);
+        lwesp_sys_mbox_get(&usart_ll_mbox_id, &d, 0);
 
-        /* Read data */
+/* Read data */
 #if defined(LWESP_USART_DMA_RX_STREAM)
         pos = sizeof(usart_mem) - DMA_GetCurrDataCounter(LWESP_USART_DMA_RX_STREAM);
 #else
-        /* pos = sizeof(usart_mem) - DMA_GetDataLength(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
+        pos = sizeof(usart_mem) - DMA_GetDataLength(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH);
 #endif /* defined(LWESP_USART_DMA_RX_STREAM) */
         if (pos != old_pos && is_running) {
             if (pos > old_pos) {
@@ -168,11 +170,22 @@ usart_ll_thread(void *arg) {
     }
 }
 
+static void StartUsart_ll_thread() {
+    if (usart_ll_mbox_id == NULL) {
+        if (lwesp_sys_mbox_create(&usart_ll_mbox_id, 10)) {
+        }
+    }
+    if (usart_ll_thread_id == NULL) {
+        //TODO: consider what priority best to use for it
+        lwesp_sys_thread_create(&usart_ll_thread_id, "esp_AT_usart_thread",
+                                usart_ll_thread, usart_ll_mbox_id, 1024, 1);
+    }
+}
+
 /**
  * \brief           Configure UART using DMA for receive in double buffer mode and IDLE line detection
  */
-static void
-configure_uart(uint32_t baudrate) {
+static void configure_uart(uint32_t baudrate) {
     static USART_InitTypeDef usart_init;
     static DMA_InitTypeDef dma_init;
     GPIO_InitTypeDef gpio_init;
@@ -242,7 +255,7 @@ configure_uart(uint32_t baudrate) {
         GPIO_Init(LWESP_USART_TX_PORT, &gpio_init);
         GPIO_PinAFConfig(LWESP_USART_TX_PORT, LWESP_USART_TX_PIN_SOURCE, LWESP_USART_TX_PIN_AF);
 
-        /* RX PIN */
+        /* /1* RX PIN *1/ */
         gpio_init.GPIO_Pin = LWESP_USART_RX_PIN;
         GPIO_Init(LWESP_USART_RX_PORT, &gpio_init);
         GPIO_PinAFConfig(LWESP_USART_RX_PORT, LWESP_USART_RX_PIN_SOURCE, LWESP_USART_RX_PIN_AF);
@@ -259,7 +272,8 @@ configure_uart(uint32_t baudrate) {
         usart_init.USART_StopBits = USART_StopBits_1;
         USART_Init(LWESP_USART, &usart_init);
 
-        /* /1* / 1 * Enable USART interrupts and DMA request * 1 / * / */
+        /* NVIC_Configuration(); */
+        // Enable USART interrupts and DMA request * /
         USART_ITConfig(LWESP_USART, USART_IT_IDLE, ENABLE);
         USART_ITConfig(LWESP_USART, USART_IT_PE, ENABLE);
         USART_ITConfig(LWESP_USART, USART_IT_ERR, ENABLE);
@@ -275,8 +289,8 @@ configure_uart(uint32_t baudrate) {
         DMA_DeInit(LWESP_USART_DMA_RX_STREAM);
         dma_init.DMA_Channel = LWESP_USART_DMA_RX_CH;
 #else
-        /* DMA_DeInit(LWESP_USART_DMA_RX_STREAM); */
-        /* dma_init.PeriphRequest = LWESP_USART_DMA_RX_REQ_NUM; */
+/* DMA_DeInit(LWESP_USART_DMA_RX_STREAM); */
+/* dma_init.PeriphRequest = LWESP_USART_DMA_RX_REQ_NUM; */
 #endif /* defined(LWESP_USART_DMA_RX_STREAM) */
         dma_init.DMA_PeripheralBaseAddr = (uint32_t)&LWESP_USART->LWESP_USART_RDR_NAME;
         dma_init.DMA_Memory0BaseAddr = (uint32_t)usart_mem;
@@ -294,7 +308,7 @@ configure_uart(uint32_t baudrate) {
         DMA_Init(LWESP_USART_DMA_RX_CH, &dma_init);
 #endif /* defined(LWESP_USART_DMA_RX_STREAM) */
 
-        /* Enable DMA interrupts */
+/* Enable DMA interrupts */
 #if defined(LWESP_USART_DMA_RX_STREAM)
         DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_HT, ENABLE);
         DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TC, ENABLE);
@@ -314,15 +328,13 @@ configure_uart(uint32_t baudrate) {
         old_pos = 0;
         is_running = 1;
 
-        /* Start DMA and USART */
+/* Start DMA and USART */
 #if defined(LWESP_USART_DMA_RX_STREAM)
         DMA_Cmd(LWESP_USART_DMA_RX_STREAM, ENABLE);
-        /* LL_DMA_EnableStream(LWESP_USART_DMA, LWESP_USART_DMA_RX_STREAM); */
 #else
-        /* LL_DMA_EnableChannel(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
+/* LL_DMA_EnableChannel(LWESP_USART_DMA, LWESP_USART_DMA_RX_CH); */
 #endif /* defined(LWESP_USART_DMA_RX_STREAM) */
         USART_Cmd(LWESP_USART, ENABLE);
-        return;
     } else {
         vTaskDelay(100);
         USART_Cmd(LWESP_USART, DISABLE);
@@ -330,15 +342,8 @@ configure_uart(uint32_t baudrate) {
         USART_Init(LWESP_USART, &usart_init);
         USART_Cmd(LWESP_USART, ENABLE);
     }
-
     /* Create mbox and start thread */
-    if (usart_ll_mbox_id == NULL) {
-        lwesp_sys_mbox_create(usart_ll_mbox_id, 10);
-    }
-    if (usart_ll_thread_id == NULL) {
-        //TODO: consider what priority best to use for it
-        lwesp_sys_thread_create(usart_ll_thread_id, "esp_AT_usart_thread", usart_ll_thread, usart_ll_mbox_id, 1024, 2);
-    }
+    StartUsart_ll_thread();
 }
 
 #if defined(LWESP_RESET_PIN)
@@ -366,12 +371,6 @@ send_data(const void *data, size_t len) {
         LWESP_USART->LWESP_USART_RDR_NAME = (d[i] & (uint16_t)0x01FF);
     }
     return len;
-}
-
-void print_esp(char *txt) {
-    if (txt != NULL) {
-        send_data(txt, strlen(txt));
-    }
 }
 
 /**
@@ -420,11 +419,14 @@ void LWESP_USART_IRQHANDLER(void) {
     USART_ClearITPendingBit(LWESP_USART, USART_IT_FE);
     USART_ClearITPendingBit(LWESP_USART, USART_IT_ORE);
     USART_ClearITPendingBit(LWESP_USART, USART_IT_NE);
-
-    if (usart_ll_mbox_id != NULL) {
-        void *d = (void *)1;
-        lwesp_sys_mbox_put(usart_ll_mbox_id, &d);
-    }
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_RXNE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_ERR);
+    int d;
+    d = LWESP_USART->SR;
+    (void)d;
+    d = LWESP_USART->DR;
+    (void)d;
+    _PutUsartMbox();
 }
 #endif
 
@@ -434,11 +436,7 @@ void LWESP_USART_IRQHANDLER(void) {
 void LWESP_USART_DMA_RX_IRQHANDLER(void) {
     DMA_ClearITPendingBit(LWESP_USART_DMA_RX_STREAM, DMA_IT_TC);
     DMA_ClearITPendingBit(LWESP_USART_DMA_RX_STREAM, DMA_IT_HT);
-
-    if (usart_ll_mbox_id != NULL) {
-        void *d = (void *)1;
-        lwesp_sys_mbox_put(usart_ll_mbox_id, &d);
-    }
+    _PutUsartMbox();
 }
 
 #endif /* !__DOXYGEN__ */
