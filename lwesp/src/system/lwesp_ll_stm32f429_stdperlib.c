@@ -292,6 +292,7 @@ static void configure_uart(uint32_t baudrate) {
 /* DMA_DeInit(LWESP_USART_DMA_RX_STREAM); */
 /* dma_init.PeriphRequest = LWESP_USART_DMA_RX_REQ_NUM; */
 #endif /* defined(LWESP_USART_DMA_RX_STREAM) */
+        memset(usart_mem, 0, sizeof(usart_mem));
         dma_init.DMA_PeripheralBaseAddr = (uint32_t)&LWESP_USART->LWESP_USART_RDR_NAME;
         dma_init.DMA_Memory0BaseAddr = (uint32_t)usart_mem;
         dma_init.DMA_DIR = DMA_DIR_PeripheralToMemory;
@@ -316,9 +317,9 @@ static void configure_uart(uint32_t baudrate) {
         DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_FE, ENABLE);
         DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_DME, ENABLE);
 #else
-        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_HT, ENABLE);
-        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TC, ENABLE);
-        DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TE, ENABLE);
+        /* DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_HT, ENABLE); */
+        /* DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TC, ENABLE); */
+        /* DMA_ITConfig(LWESP_USART_DMA_RX_STREAM, DMA_IT_TE, ENABLE); */
 #endif /* defined(LWESP_USART_DMA_RX_STREAM) */
 
         /* Enable DMA interrupts */
@@ -415,13 +416,13 @@ lwesp_ll_deinit(lwesp_ll_t *ll) {
 #ifdef WIFI_ESP_ENABLED
 #define USART_CLEARITPENDINGBIT(USART, IT) USART->SR = (uint16_t) ~(1 << (IT >> 8))
 void LWESP_USART_IRQHANDLER(void) {
-    USART_CLEARITPENDINGBIT(LWESP_USART, USART_IT_IDLE);
-    USART_CLEARITPENDINGBIT(LWESP_USART, USART_IT_PE);
-    USART_CLEARITPENDINGBIT(LWESP_USART, USART_IT_FE);
-    USART_CLEARITPENDINGBIT(LWESP_USART, USART_IT_ORE);
-    USART_CLEARITPENDINGBIT(LWESP_USART, USART_IT_NE);
-    USART_CLEARITPENDINGBIT(LWESP_USART, USART_IT_RXNE);
-    USART_CLEARITPENDINGBIT(LWESP_USART, USART_IT_ERR);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_IDLE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_PE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_FE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_ORE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_NE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_RXNE);
+    USART_ClearITPendingBit(LWESP_USART, USART_IT_ERR);
     int d;
     d = LWESP_USART->SR;
     (void)d;
@@ -435,8 +436,8 @@ void LWESP_USART_IRQHANDLER(void) {
  * \brief           UART DMA stream/channel handler
  */
 void LWESP_USART_DMA_RX_IRQHANDLER(void) {
-    DMA_ClearITPendingBit(LWESP_USART_DMA_RX_STREAM, DMA_IT_TC);
-    DMA_ClearITPendingBit(LWESP_USART_DMA_RX_STREAM, DMA_IT_HT);
+    DMA_ClearITPendingBit(LWESP_USART_DMA_RX_STREAM, DMA_IT_TCIF1);
+    DMA_ClearITPendingBit(LWESP_USART_DMA_RX_STREAM, DMA_IT_HTIF1);
     _PutUsartMbox();
 }
 
