@@ -1881,9 +1881,13 @@ lwespi_initiate_cmd(lwesp_msg_t* msg) {
 
             AT_PORT_SEND_BEGIN_AT();
             AT_PORT_SEND_CONST_STR("+CWMODE=");
-            lwespi_send_number(LWESP_U32(m), 0, 0);
-            lwespi_send_number(1, 0, 1);
-            AT_PORT_SEND_END_AT();
+			lwespi_send_number(LWESP_U32(m), 0, 0);
+			if ((esp.m.version_at.major == 1)&&
+					(esp.m.version_at.minor==7)&&
+					(esp.m.version_at.patch==4)){
+			}else{
+				lwespi_send_number(1, 0, 1);}
+			AT_PORT_SEND_END_AT();
             break;
         }
         case LWESP_CMD_WIFI_CWMODE_GET: {       /* Get WIFI mode */
